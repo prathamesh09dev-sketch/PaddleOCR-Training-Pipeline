@@ -1,0 +1,497 @@
+========================================================================
+ INSTRUCTIONS: Training a Custom Indian License Plate Recognition Model
+ using PaddleOCR (PP-OCRv5 Mobile Recognition)
+========================================================================
+
+This guide walks through setting up the environment, preparing the
+dataset, training PP-OCRv5 Mobile Recognition on license plate images,
+selecting the best checkpoint, exporting it, and using it in another
+project.
+
+------------------------------------------------------------------------
+STEP 0 — Environment Setup
+------------------------------------------------------------------------
+Create and activate a virtual environment (skip if already present):
+
+    python3 -m venv venv
+    source venv/bin/activate
+
+Install dependencies:
+
+    pip install -r requirements.txt
+
+Or install PaddlePaddle GPU directly:
+
+    python -m pip install --dry-run paddlepaddle-gpu==3.3.1 \
+        -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
+
+------------------------------------------------------------------------
+STEP 1 — Extract Labels From Image Filenames
+------------------------------------------------------------------------
+Open extract_labels_from_filenames.py and update the image folder path:
+
+    IMAGE_DIR = '/path/to/your/Snapshots_tight_crop/'   # change to your folder
+
+Run it:
+
+    python extract_labels_from_filenames.py
+
+------------------------------------------------------------------------
+STEP 2 — Prepare the PaddleOCR Dataset
+------------------------------------------------------------------------
+    python prepare_paddle_dataset.py \
+        --images /path/to/your/Snapshots_tight_crop/ \
+        --csv labels.csv \
+        --output paddle_plate_dataset \
+        --val-ratio 0.10 \
+        --test-ratio 0.10
+
+Verify the output:
+
+    ls -lah paddle_plate_dataset
+
+Expected label format (train.txt / val.txt / test.txt):
+
+    train/MH12AB1234_00001.jpg    MH12AB1234
+    train/RJ14CD5678_00002.jpg    RJ14CD5678
+    train/KA01EF1234_00003.jpg    KA01EF1234
+
+Expected folder structure:
+
+    paddle_plate_dataset/
+    ├── train/
+    ├── val/
+    ├── test/
+    └── labels/
+        ├── train.txt
+        ├── val.txt
+        └── test.txt
+
+------------------------------------------------------------------------
+STEP 3 — Clone PaddleOCR (if not already present)
+------------------------------------------------------------------------
+    git clone https://github.com/PaddlePaddle/PaddleOCR.git
+    cd PaddleOCR
+
+Confirm the PP-OCRv5 recognition config exists:
+
+    ls configs/rec/PP-OCRv5/
+
+You should see PP-OCRv5_mobile_rec.yml among the files.
+
+------------------------------------------------------------------------
+STEP 4 — Create the Character Dictionary
+------------------------------------------------------------------------
+Create plate_dict.txt (one character per line) if it doesn't exist:
+
+    nano plate_dict.txt
+
+Contents (digits 0-9, then letters A-Z, one per line):
+
+    0
+    1
+    2
+    3
+    4
+    5
+    6
+    7
+    8
+    9
+    A
+    B
+    C
+    D
+    E
+    F
+    G
+    H
+    I
+    J
+    K
+    L
+    M
+    N
+    O
+    P
+    Q
+    R
+    S
+    T
+    U
+    V
+    W
+    X
+    Y
+    Z
+
+Project structure at this point:
+
+    PaddleOCR_Training/
+    ├── PaddleOCR/
+    ├── paddle_plate_dataset/
+    └── plate_dict.txt
+
+------------------------------------------------------------------------
+STEP 5 — Copy the PP-OCRv5 Config as Your Training Config
+------------------------------------------------------------------------
+From inside PaddleOCR_Training/PaddleOCR:
+
+    cp configs/rec/PP-OCRv5/PP-OCRv5_mobile_rec.yml \
+        ../plate_rec.yml
+
+Project structure now:
+
+    PaddleOCR_Training/
+    ├── PaddleOCR/
+    ├── paddle_plate_dataset/
+    ├── plate_dict.txt
+    └── plate_rec.yml
+
+Example labels (plate formats vary — BH series, standard state codes, etc.):
+
+    train/23BH6041E_00001.jpg     23BH6041E
+    train/MH49AT0483_00002.jpg    MH49AT0483
+    train/MH31F3609_00003.jpg     MH31F3609
+
+------------------------------------------------------------------------
+STEP 6 — Verify the Dataset
+------------------------------------------------------------------------
+    head -5 paddle_plate_dataset/labels/train.txt
+    find paddle_plate_dataset/train -type f | wc -l
+    find paddle_plate_dataset/val -type f | wc -l
+    find paddle_plate_dataset/test -type f | wc -l
+    wc -l paddle_plate_dataset/labels/train.txt
+    wc -l paddle_plate_dataset/labels/val.txt
+    wc -l paddle_plate_dataset/labels/test.txt
+
+>> Image counts and label counts MUST match for every split before continuing.
+
+------------------------------------------------------------------------
+STEP 7 — Verify Installation
+------------------------------------------------------------------------
+    python -c "import paddleocr; print(paddleocr.__version__)"
+    python -c "import paddle; print(paddle.__version__)"
+
+Expected versions: PaddleOCR 3.7.0, PaddlePaddle 3.3.1
+
+------------------------------------------------------------------------
+STEP 8 — Select the PP-OCRv5 Recognition Configuration
+------------------------------------------------------------------------
+    PaddleOCR/configs/rec/PP-OCRv5/
+    ├── PP-OCRv5_mobile_rec.yml
+    ├── PP-OCRv5_server_rec.yml
+    └── multi_language/
+
+Use the mobile recognition config (PP-OCRv5_mobile_rec.yml) as the base,
+adapted for license plate recognition.
+
+------------------------------------------------------------------------
+STEP 9 — Customize plate_rec.yml
+------------------------------------------------------------------------
+Key sections to edit in plate_rec.yml:
+
+    Global:
+      model_name: PP-OCRv5_mobile_rec
+      use_gpu: true
+      epoch_num: 200
+      character_dict_path: /full/path/to/PaddleOCR_Training/plate_dict.txt
+      max_text_length: 12
+      d2s_train_image_shape: [3, 48, 320]
+
+    Architecture:
+      model_type: rec
+      algorithm: SVTR_LCNet
+      Backbone:
+        name: PPLCNetV3
+        scale: 0.95
+      Head:
+        name: MultiHead
+
+    Loss:
+      name: MultiLoss
+      loss_config_list:
+        - CTCLoss
+        - NRTRLoss
+
+    Metric:
+      name: RecMetric
+      main_indicator: acc
+
+NOTE: plate_dict.txt directly defines the character set and output
+dimensions of the recognition head — keep it in sync with your dataset.
+
+------------------------------------------------------------------------
+STEP 10 — Configure Training and Validation Dataset Paths
+------------------------------------------------------------------------
+    Train:
+      dataset:
+        name: MultiScaleDataSet
+        data_dir: /full/path/to/paddle_plate_dataset
+        label_file_list:
+          - /full/path/to/paddle_plate_dataset/labels/train.txt
+      sampler:
+        scales: [[320, 32], [320, 48], [320, 64]]
+        first_bs: 32
+      loader:
+        batch_size_per_card: 32
+        num_workers: 8
+
+    Eval:
+      dataset:
+        name: SimpleDataSet
+        data_dir: /full/path/to/paddle_plate_dataset
+        label_file_list:
+          - /full/path/to/paddle_plate_dataset/labels/val.txt
+      loader:
+        batch_size_per_card: 32
+        num_workers: 4
+
+------------------------------------------------------------------------
+STEP 11 — Fix Missing Dependencies (if smoke test fails)
+------------------------------------------------------------------------
+If you see errors about missing skimage / albumentations:
+
+    pip install scikit-image albumentations
+
+------------------------------------------------------------------------
+STEP 12 — Verify GPU Availability
+------------------------------------------------------------------------
+    python -c "import paddle; print('Paddle:', paddle.__version__); \
+print('Compiled with CUDA:', paddle.is_compiled_with_cuda()); \
+print('GPU:', paddle.device.cuda.device_count())"
+    nvidia-smi
+
+A CPU-only Paddle install will cause ParallelEnv/device errors. With a
+correct GPU-enabled install, training logs should show:
+
+    train with paddle 3.3.1 and device Place(gpu:0)
+
+------------------------------------------------------------------------
+STEP 13 — Run a 1-Epoch Smoke Test
+------------------------------------------------------------------------
+    cd PaddleOCR_Training/PaddleOCR
+
+    CUDA_VISIBLE_DEVICES=0 python tools/train.py \
+        -c ../plate_rec.yml \
+        -o Global.epoch_num=1 \
+           Global.save_model_dir=../output/smoke_test
+
+This confirms the config, dataset, dictionary, pretrained model, data
+loader, and GPU all work before committing to a long training run.
+
+------------------------------------------------------------------------
+STEP 14 — Understand Pretrained Head Warnings
+------------------------------------------------------------------------
+During the smoke test you may see shape-mismatch warnings for the
+CTC/NRTR head parameters. This is EXPECTED — the pretrained PP-OCRv5
+model uses a much larger character vocabulary than your custom
+plate_dict.txt, so the head is being re-initialized for your smaller
+character set.
+
+------------------------------------------------------------------------
+STEP 15 — Run Full Training
+------------------------------------------------------------------------
+    cd PaddleOCR_Training/PaddleOCR
+    mkdir -p ../output/plate_rec_v1   # if not already present
+
+    CUDA_VISIBLE_DEVICES=0 python tools/train.py \
+        -c ../plate_rec.yml \
+        -o Global.epoch_num=200 \
+           Global.save_model_dir=../output/plate_rec_v1 \
+        2>&1 | tee ../output/plate_rec_v1_train.log
+
+------------------------------------------------------------------------
+STEP 16 — Note on Early Stopping
+------------------------------------------------------------------------
+This version of PaddleOCR does not expose a simple early-stopping /
+patience option in the training config. The recommended approach is to
+let training run the full epoch count while PaddleOCR tracks the best
+validation metric internally (see best_accuracy checkpoint below).
+
+------------------------------------------------------------------------
+STEP 17 — Review Final Training Results
+------------------------------------------------------------------------
+Example final log output:
+
+    epoch: [200/200]
+    train acc: 1.000000
+    norm_edit_dis: 1.000000
+
+    best metric:
+    acc: 0.8588445452123613
+    norm_edit_dis: 0.9824283635485043
+    best_epoch: 195
+
+>> Always prefer the BEST checkpoint (e.g. epoch 195, ~85.88% val acc)
+   over the LATEST checkpoint (epoch 200), since later epochs can overfit.
+
+------------------------------------------------------------------------
+STEP 18 — Understand Output Files
+------------------------------------------------------------------------
+    output/plate_rec_v1/
+    ├── best_accuracy.pdparams   <- best weights (KEEP — needed for export)
+    ├── best_accuracy.pdopt      <- optimizer state (not needed for inference)
+    ├── best_accuracy.states     <- training state (not needed for inference)
+    ├── config.yml               <- config used (keep as reference)
+    ├── iter_epoch_10.*
+    ├── ...
+    ├── iter_epoch_200.*
+    ├── latest.pdparams
+    ├── latest.pdopt
+    ├── latest.states
+    └── train.log                <- full training history
+
+------------------------------------------------------------------------
+STEP 19 — Export the Best Model for Inference
+------------------------------------------------------------------------
+    python tools/export_model.py \
+        -c ../output/plate_rec_v1/config.yml \
+        -o Global.pretrained_model=../output/plate_rec_v1/best_accuracy \
+           Global.save_inference_dir=../output/plate_rec_v1/inference
+
+    ls -lh ../output/plate_rec_v1/inference/
+
+Always deploy using this exported "inference" directory — never copy
+the full training output folder to production.
+
+------------------------------------------------------------------------
+STEP 20 — Use the Model in Another Project
+------------------------------------------------------------------------
+Copy only the deployment essentials into your new project:
+
+    my_new_project/
+    ├── models/
+    │   ├── inference.pdiparams
+    │   ├── inference.yml
+    │   └── inference.json
+    ├── plate_dict.txt          <- MUST be the same dict used in training
+    └── test_plate_model.py
+
+The dataset, optimizer files (.pdopt), and training states (.states)
+are NOT needed for inference — leave them out of the deployment package.
+
+------------------------------------------------------------------------
+STEP 21 — Test the Model
+------------------------------------------------------------------------
+Confirm exported files exist:
+
+    ls -lh ../output/plate_rec_v1/inference/
+
+You should see:
+
+    inference.pdiparams
+    inference.yml
+    inference.pdiparams.info
+
+--- Test a single image ---
+
+    python test_plate_model.py --input /home/moodscope/Desktop/Speed_Ocr/speed_ocr/backend/media/plates/ --output paddleocr_results
+
+Expected output:
+
+    Loading OCR model...
+    Found 1 image(s)
+    [1/1] plate.jpg
+    ======================================================================
+    Image: /path/to/plate.jpg
+    ======================================================================
+    Text : MH31FX7141
+    Score: 0.9821
+
+--- Test an entire folder ---
+
+    python test_plate_model.py --input ../test_images/
+
+Expected output (one block per image):
+
+    [1/100] image001.jpg
+    Text : MH31FX7141
+    Score: 0.9821
+
+    [2/100] image002.jpg
+    Text : MH49AT0483
+    Score: 0.9942
+
+    [3/100] image003.jpg
+    Text : 23BH6041E
+    Score: 0.9718
+
+------------------------------------------------------------------------
+PIPELINE FLOW (End-to-End Summary)
+------------------------------------------------------------------------
+
+    [0] Setup venv + install PaddlePaddle/PaddleOCR deps
+             |
+             v
+    [1] Extract labels from image filenames
+             |
+             v
+    [2] Prepare dataset  -->  paddle_plate_dataset/{train,val,test,labels}
+             |
+             v
+    [3] Clone PaddleOCR  -->  locate configs/rec/PP-OCRv5/
+             |
+             v
+    [4] Create plate_dict.txt (character set)
+             |
+             v
+    [5] Copy PP-OCRv5_mobile_rec.yml  -->  plate_rec.yml
+             |
+             v
+    [6] Verify dataset (image count == label count, all splits)
+             |
+             v
+    [7] Verify install versions (PaddleOCR 3.7.0 / PaddlePaddle 3.3.1)
+             |
+             v
+    [8] Confirm PP-OCRv5 mobile rec config selected as base
+             |
+             v
+    [9] Customize plate_rec.yml (Global / Architecture / Loss / Metric)
+             |
+             v
+    [10] Point Train/Eval dataset paths to paddle_plate_dataset + labels
+             |
+             v
+    [11] Install missing deps (scikit-image, albumentations) if needed
+             |
+             v
+    [12] Verify GPU (paddle.is_compiled_with_cuda / nvidia-smi)
+             |
+             v
+    [13] Smoke test — 1 epoch  -->  ../output/smoke_test
+             |
+             v
+    [14] Confirm head-shape warnings are expected (vocab size change)
+             |
+             v
+    [15] Full training — 200 epochs  -->  ../output/plate_rec_v1
+             |
+             v
+    [16] (No built-in early stopping — best metric tracked automatically)
+             |
+             v
+    [17] Review final results  -->  pick best_epoch (e.g. 195, ~85.88% acc)
+             |
+             v
+    [18] Identify key output file: best_accuracy.pdparams
+             |
+             v
+    [19] Export best checkpoint  -->  ../output/plate_rec_v1/inference/
+             |
+             v
+    [20] Copy inference files + plate_dict.txt into new project
+             |
+             v
+    [21] Run test_plate_model.py on single image or folder  -->  DONE
+
+    Legend:
+      Steps 0-6   = Data preparation
+      Steps 7-14  = Environment & config validation
+      Steps 15-18 = Training & checkpoint selection
+      Steps 19-21 = Export & deployment
+
+========================================================================
+ END OF INSTRUCTIONS
+========================================================================

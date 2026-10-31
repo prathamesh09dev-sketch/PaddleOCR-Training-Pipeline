@@ -1,0 +1,70 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Cloned External Repositories
+PaddleOCR/
+
+# Model Checkpoints, Pretrained Weights & Outputs
+output/
+pretrained_models/
+*.pdparams
+*.pdopt
+*.states
+*.pdmodel
+*.pdiparams
+*.pdiparams.info
+*.onnx
+*.pth
+*.pt
+*.bin
+*.tflite
+*.engine
+
+# Datasets and Test Images
+paddle_plate_dataset/
+test_ocr/
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.webp
+
+# Evaluation & Intermediate Output
+paddleocr_results/
+paddleocr_vahan_results/
+labels.csv
+results.csv
+results_over_images.csv
+failed_extraction.txt
+
+# Logs
+*.log
+
+# Jupyter Notebook Checkpoints
+.ipynb_checkpoints/
+
+# Distribution / Packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# IDE and Editor Files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
